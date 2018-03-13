@@ -6,14 +6,15 @@
 
 using namespace std;
 
-int t_count, sum;
+int t_count;
+volatile int sum;
 mutex myLock;
 
 void thread_func() {
 	for (auto i = 0; i < 50000000 / t_count; ++i) {
-		myLock.lock();
+		//myLock.lock();
 		sum = sum + 2;
-		myLock.unlock();
+		//myLock.unlock();
 	}
 }
 
