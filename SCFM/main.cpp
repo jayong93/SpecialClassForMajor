@@ -3,16 +3,17 @@
 #include <thread>
 #include <iostream>
 #include <mutex>
+#include <atomic>
 
 using namespace std;
 
 int t_count;
-volatile int sum;
+atomic<int> sum;
 mutex myLock;
 
 void thread_func() {
 	for (auto i = 0; i < 50000000 / t_count; ++i) {
-		_asm lock add sum, 2;
+		sum += 2;
 	}
 }
 
