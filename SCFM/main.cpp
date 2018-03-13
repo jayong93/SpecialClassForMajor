@@ -14,6 +14,7 @@ mutex myLock;
 void thread_func() {
 	for (auto i = 0; i < 50000000 / t_count; ++i) {
 		sum += 2;
+		// sum = sum + 2;   // 이 코드는 올바른 결과를 내지 않는다. atomic한 연산들을 합쳐도 전체가 atomic한건 아니다.
 	}
 }
 
