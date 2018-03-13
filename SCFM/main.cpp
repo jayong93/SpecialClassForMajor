@@ -12,9 +12,7 @@ mutex myLock;
 
 void thread_func() {
 	for (auto i = 0; i < 50000000 / t_count; ++i) {
-		//myLock.lock();
-		sum = sum + 2;
-		//myLock.unlock();
+		_asm lock add sum, 2;
 	}
 }
 
