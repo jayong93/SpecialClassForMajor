@@ -1,6 +1,8 @@
 .vs/
 **/Debug/
 **/Release/
+*.db
+*.opendb
 
 # Prerequisites
 *.d
