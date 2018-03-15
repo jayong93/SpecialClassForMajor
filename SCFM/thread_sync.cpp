@@ -3,27 +3,16 @@
 #include <mutex>
 
 int data;
-bool flag = false;
-std::mutex lock;
+volatile bool flag = false;
 
 void thread_recv() {
-    lock.lock();
-    bool myFlag = flag;
-    lock.unlock();
-    while (false == myFlag) {
-        lock.lock(); myFlag = flag; lock.unlock();
-    }
-    lock.lock();
-    int myData = data;
-    lock.unlock();
-    std::cout << "I received [" << myData << "]\n";
+    while (false == flag);
+    std::cout << "I received [" << data << "]\n";
 }
 
 void thread_send() {
-    lock.lock();
     data = 999;
     flag = true;
-    lock.unlock();
     std::cout << "I have sent [" << data << "]\n";
     std::cout << "Flag is [" << flag << "]\n";
 }
