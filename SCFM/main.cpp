@@ -19,6 +19,7 @@ void p_lock() {
 	int other = 1 - myID;
 	flag[myID] = true;
 	victim = myID;
+	_asm mfence;
 	while (flag[other] && (victim == myID));
 }
 
