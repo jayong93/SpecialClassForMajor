@@ -8,27 +8,38 @@
 using namespace std;
 
 int t_count;
-atomic<int> sum;
+int sum;
 mutex myLock;
 
-void thread_func() {
-	volatile int local_sum = 0;
+volatile bool flag[2] = { false, false };
+volatile int victim;
+
+void p_lock(int myID) {
+	int other = 1 - myID;
+	flag[myID] = true;
+	victim = myID;
+	while (flag[other] && (victim == myID));
+}
+
+void p_unlock(int myID) {
+	flag[myID] = false;
+}
+
+void thread_func(int id) {
 	for (auto i = 0; i < 50000000 / t_count; ++i) {
-		local_sum += 2;
-		// sum = sum + 2;   // 이 코드는 올바른 결과를 내지 않는다. atomic한 연산들을 합쳐도 전체가 atomic한건 아니다.
+		p_lock(id);
+		sum = sum + 2;
+		p_unlock(id);
 	}
-	myLock.lock();
-	sum += local_sum;
-	myLock.unlock();
 }
 
 int main() {
-	for (t_count = 1; t_count <= 16; t_count *= 2) {
+	for (t_count = 2; t_count <= 2; t_count *= 2) {
 		sum = 0;
 		vector<thread*> t_v;
 		auto start_t = chrono::high_resolution_clock::now();
 		for (auto i = 0; i < t_count; ++i) {
-			t_v.emplace_back(new thread{ thread_func });
+			t_v.emplace_back(new thread{ thread_func, i });
 		}
 		for (auto t : t_v) {
 			t->join();
