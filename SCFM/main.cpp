@@ -13,23 +13,25 @@ mutex myLock;
 
 volatile bool flag[2] = { false, false };
 volatile int victim;
+thread_local int myID;
 
-void p_lock(int myID) {
+void p_lock() {
 	int other = 1 - myID;
 	flag[myID] = true;
 	victim = myID;
 	while (flag[other] && (victim == myID));
 }
 
-void p_unlock(int myID) {
+void p_unlock() {
 	flag[myID] = false;
 }
 
 void thread_func(int id) {
+	myID = id;
 	for (auto i = 0; i < 50000000 / t_count; ++i) {
-		p_lock(id);
+		p_lock();
 		sum = sum + 2;
-		p_unlock(id);
+		p_unlock();
 	}
 }
 
