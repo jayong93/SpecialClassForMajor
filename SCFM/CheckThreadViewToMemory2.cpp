@@ -28,6 +28,7 @@ int main() {
 	int temp = reinterpret_cast<int>(arr+16);
 	// temp가 64의 배수가 되도록 조작 후, 2를 뺌
 	// 64는 cache line 사이즈.
+	// 즉, Cache LIne Size Boundary에 데이터가 걸치도록 만들었다.
 	temp = (temp / 64) * 64;
 	temp -= 2;
 
