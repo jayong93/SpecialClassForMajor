@@ -8,6 +8,7 @@ int t_x[SIZE], t_y[SIZE];
 void th0() {
 	for (int i = 0; i < SIZE; ++i) {
 		x = i;
+		_asm mfence;
 		t_y[i] = y;
 	}
 }
@@ -15,6 +16,7 @@ void th0() {
 void th1() {
 	for (int i = 0; i < SIZE; ++i) {
 		y = i;
+		_asm mfence;
 		t_x[i] = x;
 	}
 }
