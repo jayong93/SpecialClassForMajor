@@ -1,5 +1,6 @@
 #include <thread>
 #include <iostream>
+#include <atomic>
 
 static const int SIZE = 50000000;
 volatile int x, y;
@@ -8,7 +9,7 @@ int t_x[SIZE], t_y[SIZE];
 void th0() {
 	for (int i = 0; i < SIZE; ++i) {
 		x = i;
-		_asm mfence;
+		std::_Atomic_thread_fence(std::memory_order_seq_cst);
 		t_y[i] = y;
 	}
 }
@@ -16,7 +17,7 @@ void th0() {
 void th1() {
 	for (int i = 0; i < SIZE; ++i) {
 		y = i;
-		_asm mfence;
+		std::_Atomic_thread_fence(std::memory_order_seq_cst);
 		t_x[i] = x;
 	}
 }
