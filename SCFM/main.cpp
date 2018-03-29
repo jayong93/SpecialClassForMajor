@@ -7,42 +7,35 @@
 
 using namespace std;
 
-int t_count;
-int sum;
-mutex myLock;
-
-volatile bool flag[2] = { false, false };
-volatile int victim;
-thread_local int myID;
-
-void p_lock() {
-	int other = 1 - myID;
-	flag[myID] = true;
-	victim = myID;
-	_asm mfence;
-	while (flag[other] && (victim == myID));
+bool CAS(atomic_int* addr, int expected, int newVal) {
+	return atomic_compare_exchange_strong(addr, &expected, newVal);
 }
 
-void p_unlock() {
-	flag[myID] = false;
-}
+struct CASObject {
+	atomic<int> obj{ 0 };
 
-void thread_func(int id) {
-	myID = id;
-	for (auto i = 0; i < 50000000 / t_count; ++i) {
-		p_lock();
-		sum = sum + 2;
-		p_unlock();
+	void lock() { while (false == CAS(&obj, 0, 1)); }
+	void unlock() { while (false == CAS(&obj, 1, 0)); }
+};
+
+volatile int sum;
+CASObject myLock;
+
+void thread_func(int threadNum) {
+	for (auto i = 0; i < 50000000 / threadNum; ++i) {
+		myLock.lock();
+		sum += 2;
+		myLock.unlock();
 	}
 }
 
 int main() {
-	for (t_count = 2; t_count <= 2; t_count *= 2) {
+	for (auto t_count = 1; t_count <= 8; t_count *= 2) {
 		sum = 0;
 		vector<thread*> t_v;
 		auto start_t = chrono::high_resolution_clock::now();
 		for (auto i = 0; i < t_count; ++i) {
-			t_v.emplace_back(new thread{ thread_func, i });
+			t_v.emplace_back(new thread{ thread_func, t_count });
 		}
 		for (auto t : t_v) {
 			t->join();
