@@ -16,66 +16,87 @@ struct Node {
 public:
 	int key;
 	Node* next;
+	mutex m_lock;
 
 	Node() : next{ nullptr } {}
 	Node(int key) : key{ key }, next{ nullptr } {}
 	~Node() {}
+	void lock() { m_lock.lock(); }
+	void unlock() { m_lock.unlock(); }
 };
 
-class CSet {
+class FSet {
 	Node head, tail;
-	mutex lock;
 public:
-	CSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+	FSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+
 	bool add(int x) {
 		Node *pred, *curr;
+		head.lock();
 		pred = &head;
-
-		lock_guard<mutex> lck(lock);
+		pred->next->lock();
 		curr = pred->next;
+
 		while (curr->key < x) {
+			pred->unlock();
 			pred = curr;
+			curr->next->lock();
 			curr = curr->next;
 		}
 
-		if (curr->key == x) { return false; }
+		if (curr->key == x) { pred->unlock(); curr->unlock(); return false; }
 		else {
 			auto e = new Node{ x };
 			e->next = curr;
 			pred->next = e;
+
+			pred->unlock(); curr->unlock();
 			return true;
 		}
 	}
+
 	bool remove(int x) {
 		Node *pred, *curr;
+
+		head.lock();
 		pred = &head;
-		lock_guard<mutex> lck(lock);
+		pred->next->lock();
 		curr = pred->next;
+
 		while (curr->key < x) {
+			pred->unlock();
 			pred = curr;
+			curr->next->lock();
 			curr = curr->next;
 		}
 
-		if (curr->key != x) { return false; }
+		if (curr->key != x) { pred->unlock(); curr->unlock(); return false; }
 		else {
 			pred->next = curr->next;
 			delete curr;
+			pred->unlock(); curr->unlock();
 			return true;
 		}
 	}
+
 	bool contains(int x) {
 		Node *pred, *curr;
+		head.lock();
 		pred = &head;
-		lock_guard<mutex> lck(lock);
+		pred->next->lock();
 		curr = pred->next;
+
 		while (curr->key < x) {
+			pred->unlock();
 			pred = curr;
+			curr->next->lock();
 			curr = curr->next;
 		}
 
-		if (curr->key != x) { return false; }
-		else { return true; }
+		if (curr->key != x) { pred->unlock(); curr->unlock(); return false; }
+		else { pred->unlock(); curr->unlock(); return true; }
 	}
+
 	void clear() {
 		while (head.next != &tail) {
 			auto temp = head.next;
@@ -83,6 +104,7 @@ public:
 			delete temp;
 		}
 	}
+
 	void dump(size_t count) {
 		auto ptr = head.next;
 		cout << count << " Result : ";
@@ -92,20 +114,20 @@ public:
 		}
 		cout << "\n";
 	}
-} myCSet;
+} myFSet;
 
 void benchMark(int num_thread) {
 	for (int i = 0; i < NUM_TEST / num_thread; ++i) {
 		switch (rand()%3)
 		{
 		case 0:
-			myCSet.add(rand() % RANGE);
+			myFSet.add(rand() % RANGE);
 			break;
 		case 1:
-			myCSet.remove(rand() % RANGE);
+			myFSet.remove(rand() % RANGE);
 			break;
 		case 2:
-			myCSet.contains(rand() % RANGE);
+			myFSet.contains(rand() % RANGE);
 			break;
 		default:
 			cout << "Error\n";
@@ -118,7 +140,7 @@ int main() {
 	vector<thread> threads;
 
 	for (auto thread_num = 1; thread_num <= 16; thread_num *= 2) {
-		myCSet.clear();
+		myFSet.clear();
 		threads.clear();
 
 		auto start_t = chrono::high_resolution_clock::now();
@@ -126,7 +148,7 @@ int main() {
 		for_each(threads.begin(), threads.end(), [](auto& t) {t.join(); });
 		auto du = chrono::high_resolution_clock::now() - start_t;
 
-		myCSet.dump(20);
+		myFSet.dump(20);
 
 		cout << thread_num << "Threads, Time = ";
 		cout << chrono::duration_cast<chrono::milliseconds>(du).count() << "ms \n";
