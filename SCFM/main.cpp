@@ -45,6 +45,6 @@ int main() {
 		cout << "Time : " << chrono::duration_cast<chrono::milliseconds>(du).count();
 		cout << "\tSum = " << sum << endl;
 	}
-	char a;
-	cin >> a;
+	
+	system("pause");
 }
