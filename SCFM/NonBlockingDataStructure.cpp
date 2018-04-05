@@ -26,10 +26,10 @@ public:
 	void unlock() { m_lock.unlock(); }
 };
 
-class OSet {
+class ZSet {
 	Node head, tail;
 public:
-	OSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+	ZSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
 
 	bool add(int x) {
 		Node *pred, *curr;
