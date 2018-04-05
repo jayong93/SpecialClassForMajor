@@ -73,8 +73,8 @@ public:
 		if (curr->key != x) { pred->unlock(); curr->unlock(); return false; }
 		else {
 			pred->next = curr->next;
-			delete curr;
 			pred->unlock(); curr->unlock();
+			delete curr;
 			return true;
 		}
 	}
