@@ -17,6 +17,7 @@ public:
 	int key;
 	Node* next;
 	mutex m_lock;
+	bool deleted{ false };
 
 	Node() : next{ nullptr } {}
 	Node(int key) : key{ key }, next{ nullptr } {}
@@ -76,6 +77,7 @@ public:
 				{
 					if (curr->key != x) { return false; }
 					else {
+						curr->deleted = true;
 						pred->next = curr->next;
 						return true;
 					}
@@ -95,16 +97,7 @@ public:
 				pred = curr;
 				curr = curr->next;
 			}
-
-			{
-				lock_guard<mutex> pl(pred->m_lock);
-				lock_guard<mutex> cl(curr->m_lock);
-				if (validate(pred, curr))
-				{
-					if (curr->key != x) { return false; }
-					else { return true; }
-				}
-			}
+			return curr->key == x && !curr->deleted;
 		}
 	}
 
@@ -117,12 +110,7 @@ public:
 	}
 
 	bool validate(Node* pred, Node* curr) {
-		Node* node = &head;
-		while(node->key <= pred->key) {
-			if (node == pred) { return pred->next == curr; }
-			node = node->next;
-		}
-		return false;
+		return !pred->deleted && !curr->deleted && pred->next == curr;
 	}
 
 	void dump(size_t count) {
