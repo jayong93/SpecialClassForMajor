@@ -25,76 +25,87 @@ public:
 	void unlock() { m_lock.unlock(); }
 };
 
-class FSet {
+class OSet {
 	Node head, tail;
 public:
-	FSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+	OSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
 
 	bool add(int x) {
 		Node *pred, *curr;
-		head.lock();
-		pred = &head;
-		pred->next->lock();
-		curr = pred->next;
+		while (true)
+		{
+			pred = &head;
+			curr = pred->next;
 
-		while (curr->key < x) {
-			pred->unlock();
-			pred = curr;
-			curr->next->lock();
-			curr = curr->next;
-		}
-
-		if (curr->key == x) { pred->unlock(); curr->unlock(); return false; }
-		else {
-			auto e = new Node{ x };
-			e->next = curr;
-			pred->next = e;
-
-			pred->unlock(); curr->unlock();
-			return true;
+			while (curr->key < x) {
+				pred = curr;
+				curr = curr->next;
+			}
+			{
+				lock_guard<mutex> pl(pred->m_lock);
+				lock_guard<mutex> cl(curr->m_lock);
+				if (validate(pred, curr)) {
+					if (curr->key == x) { return false; }
+					else {
+						auto e = new Node{ x };
+						e->next = curr;
+						pred->next = e;
+						return true;
+					}
+				}
+			}
 		}
 	}
 
 	bool remove(int x) {
 		Node *pred, *curr;
+		while (true)
+		{
+			pred = &head;
+			curr = pred->next;
 
-		head.lock();
-		pred = &head;
-		pred->next->lock();
-		curr = pred->next;
+			while (curr->key < x) {
+				pred = curr;
+				curr = curr->next;
+			}
 
-		while (curr->key < x) {
-			pred->unlock();
-			pred = curr;
-			curr->next->lock();
-			curr = curr->next;
-		}
-
-		if (curr->key != x) { pred->unlock(); curr->unlock(); return false; }
-		else {
-			pred->next = curr->next;
-			pred->unlock(); curr->unlock();
-			delete curr;
-			return true;
+			{
+				lock_guard<mutex> pl(pred->m_lock);
+				lock_guard<mutex> cl(curr->m_lock);
+				if (validate(pred, curr))
+				{
+					if (curr->key != x) { return false; }
+					else {
+						pred->next = curr->next;
+						return true;
+					}
+				}
+			}
 		}
 	}
 
 	bool contains(int x) {
 		Node *pred, *curr;
-		head.lock();
-		pred = &head;
-		pred->next->lock();
-		curr = pred->next;
+		while (true)
+		{
+			pred = &head;
+			curr = pred->next;
 
-		while (curr->key < x) {
-			pred->unlock();
-			pred = curr;
-			curr->next->lock();
-			curr = curr->next;
+			while (curr->key < x) {
+				pred = curr;
+				curr = curr->next;
+			}
+
+			{
+				lock_guard<mutex> pl(pred->m_lock);
+				lock_guard<mutex> cl(curr->m_lock);
+				if (validate(pred, curr))
+				{
+					if (curr->key != x) { return false; }
+					else { return true; }
+				}
+			}
 		}
-
-		if (curr->key != x) { pred->unlock(); curr->unlock(); return false; }
-		else { pred->unlock(); curr->unlock(); return true; }
 	}
 
 	void clear() {
@@ -103,6 +114,15 @@ public:
 			head.next = temp->next;
 			delete temp;
 		}
+	}
+
+	bool validate(Node* pred, Node* curr) {
+		Node* node = &head;
+		while(node->key <= pred->key) {
+			if (node == pred) { return pred->next == curr; }
+			node = node->next;
+		}
+		return false;
 	}
 
 	void dump(size_t count) {
@@ -114,20 +134,20 @@ public:
 		}
 		cout << "\n";
 	}
-} myFSet;
+} mySet;
 
 void benchMark(int num_thread) {
 	for (int i = 0; i < NUM_TEST / num_thread; ++i) {
-		switch (rand()%3)
+		switch (rand() % 3)
 		{
 		case 0:
-			myFSet.add(rand() % RANGE);
+			mySet.add(rand() % RANGE);
 			break;
 		case 1:
-			myFSet.remove(rand() % RANGE);
+			mySet.remove(rand() % RANGE);
 			break;
 		case 2:
-			myFSet.contains(rand() % RANGE);
+			mySet.contains(rand() % RANGE);
 			break;
 		default:
 			cout << "Error\n";
@@ -140,7 +160,7 @@ int main() {
 	vector<thread> threads;
 
 	for (auto thread_num = 1; thread_num <= 16; thread_num *= 2) {
-		myFSet.clear();
+		mySet.clear();
 		threads.clear();
 
 		auto start_t = chrono::high_resolution_clock::now();
@@ -148,7 +168,7 @@ int main() {
 		for_each(threads.begin(), threads.end(), [](auto& t) {t.join(); });
 		auto du = chrono::high_resolution_clock::now() - start_t;
 
-		myFSet.dump(20);
+		mySet.dump(20);
 
 		cout << thread_num << "Threads, Time = ";
 		cout << chrono::duration_cast<chrono::milliseconds>(du).count() << "ms \n";
