@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <chrono>
+#include <memory>
 
 using namespace std;
 
@@ -15,7 +16,7 @@ static constexpr int RANGE = 1000;
 struct Node {
 public:
 	int key;
-	Node* next;
+	shared_ptr<Node> next;
 	mutex m_lock;
 	bool deleted{ false };
 
@@ -26,62 +27,16 @@ public:
 	void unlock() { m_lock.unlock(); }
 };
 
-
-class NodeManager {
-	Node *first, *second;
-	mutex firstLock, secondLock;
-
-public:
-	NodeManager() : first{ nullptr }, second{ nullptr } {}
-	~NodeManager() {
-		while (nullptr != first) {
-			Node* p = first;
-			first = first->next;
-			delete p;
-		}
-		while (nullptr != second) {
-			Node* p = second;
-			second = second->next;
-			delete p;
-		}
-	}
-
-	Node* GetNode(int x) {
-		lock_guard<mutex> lck{ firstLock };
-		if (nullptr == first) {
-			return new Node{x};
-		}
-		Node *p = first;
-		first = first->next;
-		p->key = x;
-		p->deleted = false;
-		p->next = nullptr;
-		return p;
-	}
-
-	void FreeNode(Node *n) {
-		lock_guard<mutex> lck{ secondLock };
-		n->next = second;
-		second = n;
-	}
-
-	void Recycle() {
-		Node *p = first;
-		first = second;
-		second = p;
-	}
-} nodePool;
-
 class ZSet {
-	Node head, tail;
+	shared_ptr<Node> head, tail;
 public:
-	ZSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+	ZSet() : head{ make_shared<Node>(0x80000000) }, tail{ make_shared<Node>(0x7fffffff) } { head->next = tail; }
 
 	bool add(int x) {
-		Node *pred, *curr;
+		shared_ptr<Node> pred, curr;
 		while (true)
 		{
-			pred = &head;
+			pred = head;
 			curr = pred->next;
 
 			while (curr->key < x) {
@@ -94,7 +49,7 @@ public:
 				if (validate(pred, curr)) {
 					if (curr->key == x) { return false; }
 					else {
-						auto e = nodePool.GetNode(x);
+						auto e = make_shared<Node>(x);
 						e->next = curr;
 						pred->next = e;
 						return true;
@@ -105,10 +60,10 @@ public:
 	}
 
 	bool remove(int x) {
-		Node *pred, *curr;
+		shared_ptr<Node> pred, curr;
 		while (true)
 		{
-			pred = &head;
+			pred = head;
 			curr = pred->next;
 
 			while (curr->key < x) {
@@ -125,7 +80,6 @@ public:
 					else {
 						curr->deleted = true;
 						pred->next = curr->next;
-						nodePool.FreeNode(curr);
 						return true;
 					}
 				}
@@ -134,10 +88,10 @@ public:
 	}
 
 	bool contains(int x) {
-		Node *pred, *curr;
+		shared_ptr<Node> pred, curr;
 		while (true)
 		{
-			pred = &head;
+			pred = head;
 			curr = pred->next;
 
 			while (curr->key < x) {
@@ -149,21 +103,17 @@ public:
 	}
 
 	void clear() {
-		while (head.next != &tail) {
-			auto temp = head.next;
-			head.next = temp->next;
-			delete temp;
-		}
+		head->next = tail;
 	}
 
-	bool validate(Node* pred, Node* curr) {
+	bool validate(shared_ptr<Node>& pred, shared_ptr<Node>& curr) {
 		return !pred->deleted && !curr->deleted && pred->next == curr;
 	}
 
 	void dump(size_t count) {
-		auto ptr = head.next;
+		auto& ptr = head->next;
 		cout << count << " Result : ";
-		for (auto i = 0; i < count && ptr != &tail; ++i) {
+		for (auto i = 0; i < count && ptr != tail; ++i) {
 			cout << ptr->key << " ";
 			ptr = ptr->next;
 		}
@@ -203,7 +153,6 @@ int main() {
 		for (auto& t : threads) { t.join(); }
 		auto du = chrono::high_resolution_clock::now() - start_t;
 
-		nodePool.Recycle();
 		mySet.dump(20);
 
 		cout << thread_num << "Threads, Time = ";
