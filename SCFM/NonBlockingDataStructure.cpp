@@ -51,6 +51,9 @@ public:
 					else {
 						auto e = make_shared<Node>(x);
 						e->next = curr;
+
+						// 이 부분이 데이터 레이스라서 죽는다.
+						// shared_ptr은 복사할 때 여러 단계를 거치기 때문에 복사 도중 다른 thread가 읽어서 죽을 수가 있다.
 						pred->next = e;
 						return true;
 					}
