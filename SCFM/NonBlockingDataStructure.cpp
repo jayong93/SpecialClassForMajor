@@ -26,6 +26,52 @@ public:
 	void unlock() { m_lock.unlock(); }
 };
 
+
+class NodeManager {
+	Node *first, *second;
+	mutex firstLock, secondLock;
+
+public:
+	NodeManager() : first{ nullptr }, second{ nullptr } {}
+	~NodeManager() {
+		while (nullptr != first) {
+			Node* p = first;
+			first = first->next;
+			delete p;
+		}
+		while (nullptr != second) {
+			Node* p = second;
+			second = second->next;
+			delete p;
+		}
+	}
+
+	Node* GetNode(int x) {
+		lock_guard<mutex> lck{ firstLock };
+		if (nullptr == first) {
+			return new Node{x};
+		}
+		Node *p = first;
+		first = first->next;
+		p->key = x;
+		p->deleted = false;
+		p->next = nullptr;
+		return p;
+	}
+
+	void FreeNode(Node *n) {
+		lock_guard<mutex> lck{ secondLock };
+		n->next = second;
+		second = n;
+	}
+
+	void Recycle() {
+		Node *p = first;
+		first = second;
+		second = p;
+	}
+} nodePool;
+
 class ZSet {
 	Node head, tail;
 public:
@@ -48,7 +94,7 @@ public:
 				if (validate(pred, curr)) {
 					if (curr->key == x) { return false; }
 					else {
-						auto e = new Node{ x };
+						auto e = nodePool.GetNode(x);
 						e->next = curr;
 						pred->next = e;
 						return true;
@@ -79,6 +125,7 @@ public:
 					else {
 						curr->deleted = true;
 						pred->next = curr->next;
+						nodePool.FreeNode(curr);
 						return true;
 					}
 				}
@@ -153,9 +200,10 @@ int main() {
 
 		auto start_t = chrono::high_resolution_clock::now();
 		generate_n(back_inserter(threads), thread_num, [thread_num]() {return thread{ benchMark, thread_num }; });
-		for_each(threads.begin(), threads.end(), [](auto& t) {t.join(); });
+		for (auto& t : threads) { t.join(); }
 		auto du = chrono::high_resolution_clock::now() - start_t;
 
+		nodePool.Recycle();
 		mySet.dump(20);
 
 		cout << thread_num << "Threads, Time = ";
