@@ -12,46 +12,61 @@ using namespace std;
 static constexpr int NUM_TEST = 4000000;
 static constexpr int RANGE = 1000;
 
-struct Node {
+struct LFNode {
 public:
 	int key;
-	Node* next;
-	mutex m_lock;
-	bool deleted{ false };
+	unsigned int next;
 
-	Node() : next{ nullptr } {}
-	Node(int key) : key{ key }, next{ nullptr } {}
-	~Node() {}
-	void lock() { m_lock.lock(); }
-	void unlock() { m_lock.unlock(); }
+	LFNode() : next{ 0 } {}
+	LFNode(int key) : key{ key }, next{ 0 } {}
+	LFNode* GetNext() {
+		return reinterpret_cast<LFNode*>(next & 0xFFFFFFFE);
+	}
+
+	LFNode* GetNextWithMark(bool& mark) {
+		int temp = next;
+		mark = (temp % 2) == 1;
+		return reinterpret_cast<LFNode*>(temp & 0xFFFFFFFE);
+	}
+
+	bool CAS(LFNode* old_next, LFNode* new_next, bool old_mark, bool new_mark) {
+		unsigned int old_value = reinterpret_cast<unsigned int>(old_next);
+		if (old_mark) old_value |= 0x1;
+		else old_value &= 0xFFFFFFFE;
+
+		unsigned new_value = reinterpret_cast<unsigned int>(new_next);
+		if (new_mark) new_value |= 0x1;
+		else new_value &= 0xFFFFFFFE;
+	}
+	~LFNode() {}
 };
 
 
 class NodeManager {
-	Node *first, *second;
+	LFNode *first, *second;
 	mutex firstLock, secondLock;
 
 public:
 	NodeManager() : first{ nullptr }, second{ nullptr } {}
 	~NodeManager() {
 		while (nullptr != first) {
-			Node* p = first;
+			LFNode* p = first;
 			first = first->next;
 			delete p;
 		}
 		while (nullptr != second) {
-			Node* p = second;
+			LFNode* p = second;
 			second = second->next;
 			delete p;
 		}
 	}
 
-	Node* GetNode(int x) {
+	LFNode* GetNode(int x) {
 		lock_guard<mutex> lck{ firstLock };
 		if (nullptr == first) {
-			return new Node{x};
+			return new LFNode{x};
 		}
-		Node *p = first;
+		LFNode *p = first;
 		first = first->next;
 		p->key = x;
 		p->deleted = false;
@@ -59,26 +74,26 @@ public:
 		return p;
 	}
 
-	void FreeNode(Node *n) {
+	void FreeNode(LFNode *n) {
 		lock_guard<mutex> lck{ secondLock };
 		n->next = second;
 		second = n;
 	}
 
 	void Recycle() {
-		Node *p = first;
+		LFNode *p = first;
 		first = second;
 		second = p;
 	}
 } nodePool;
 
-class ZSet {
-	Node head, tail;
+class LFSet {
+	LFNode head, tail;
 public:
-	ZSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+	LFSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
 
 	bool add(int x) {
-		Node *pred, *curr;
+		LFNode *pred, *curr;
 		while (true)
 		{
 			pred = &head;
@@ -105,7 +120,7 @@ public:
 	}
 
 	bool remove(int x) {
-		Node *pred, *curr;
+		LFNode *pred, *curr;
 		while (true)
 		{
 			pred = &head;
@@ -134,7 +149,7 @@ public:
 	}
 
 	bool contains(int x) {
-		Node *pred, *curr;
+		LFNode *pred, *curr;
 		while (true)
 		{
 			pred = &head;
@@ -156,7 +171,7 @@ public:
 		}
 	}
 
-	bool validate(Node* pred, Node* curr) {
+	bool validate(LFNode* pred, LFNode* curr) {
 		return !pred->deleted && !curr->deleted && pred->next == curr;
 	}
 
