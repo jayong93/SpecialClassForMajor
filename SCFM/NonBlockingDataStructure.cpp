@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <chrono>
+#include <atomic>
 
 using namespace std;
 
@@ -25,8 +26,16 @@ public:
 
 	LFNode* GetNextWithMark(bool& mark) {
 		int temp = next;
-		mark = (temp % 2) == 1;
+		mark = ((temp % 2) == 1);
 		return reinterpret_cast<LFNode*>(temp & 0xFFFFFFFE);
+	}
+
+	void SetNext(LFNode* ptr) {
+		next = reinterpret_cast<unsigned>(ptr);
+	}
+
+	bool CAS(unsigned old_value, unsigned new_value) {
+		return atomic_compare_exchange_strong(reinterpret_cast<atomic_uint*>(&next), &old_value, new_value);
 	}
 
 	bool CAS(LFNode* old_next, LFNode* new_next, bool old_mark, bool new_mark) {
@@ -37,84 +46,84 @@ public:
 		unsigned new_value = reinterpret_cast<unsigned int>(new_next);
 		if (new_mark) new_value |= 0x1;
 		else new_value &= 0xFFFFFFFE;
+
+		return CAS(old_value, new_value);
 	}
+
+	bool TryMark() {
+		// 다른 스레드가 먼저 마킹하면 실패해야 함.
+		unsigned old_value = next & 0xFFFFFFFE;
+		unsigned new_value = old_value | 0x1;
+		return CAS(old_value, new_value);
+	}
+
 	~LFNode() {}
 };
 
 
-class NodeManager {
-	LFNode *first, *second;
-	mutex firstLock, secondLock;
-
-public:
-	NodeManager() : first{ nullptr }, second{ nullptr } {}
-	~NodeManager() {
-		while (nullptr != first) {
-			LFNode* p = first;
-			first = first->next;
-			delete p;
-		}
-		while (nullptr != second) {
-			LFNode* p = second;
-			second = second->next;
-			delete p;
-		}
-	}
-
-	LFNode* GetNode(int x) {
-		lock_guard<mutex> lck{ firstLock };
-		if (nullptr == first) {
-			return new LFNode{x};
-		}
-		LFNode *p = first;
-		first = first->next;
-		p->key = x;
-		p->deleted = false;
-		p->next = nullptr;
-		return p;
-	}
-
-	void FreeNode(LFNode *n) {
-		lock_guard<mutex> lck{ secondLock };
-		n->next = second;
-		second = n;
-	}
-
-	void Recycle() {
-		LFNode *p = first;
-		first = second;
-		second = p;
-	}
-} nodePool;
+//class NodeManager {
+//	LFNode *first, *second;
+//	mutex firstLock, secondLock;
+//
+//public:
+//	NodeManager() : first{ nullptr }, second{ nullptr } {}
+//	~NodeManager() {
+//		while (nullptr != first) {
+//			LFNode* p = first;
+//			first = first->next;
+//			delete p;
+//		}
+//		while (nullptr != second) {
+//			LFNode* p = second;
+//			second = second->next;
+//			delete p;
+//		}
+//	}
+//
+//	LFNode* GetNode(int x) {
+//		lock_guard<mutex> lck{ firstLock };
+//		if (nullptr == first) {
+//			return new LFNode{x};
+//		}
+//		LFNode *p = first;
+//		first = first->next;
+//		p->key = x;
+//		p->deleted = false;
+//		p->next = nullptr;
+//		return p;
+//	}
+//
+//	void FreeNode(LFNode *n) {
+//		lock_guard<mutex> lck{ secondLock };
+//		n->next = second;
+//		second = n;
+//	}
+//
+//	void Recycle() {
+//		LFNode *p = first;
+//		first = second;
+//		second = p;
+//	}
+//} nodePool;
 
 class LFSet {
 	LFNode head, tail;
 public:
-	LFSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.next = &tail; }
+	LFSet() : head{ 0x80000000 }, tail{ 0x7fffffff } { head.SetNext(&tail); }
 
 	bool add(int x) {
 		LFNode *pred, *curr;
 		while (true)
 		{
-			pred = &head;
-			curr = pred->next;
-
-			while (curr->key < x) {
-				pred = curr;
-				curr = curr->next;
+			find(x, pred, curr);
+			if (curr->key == x) {
+				return false;
 			}
-			{
-				lock_guard<mutex> pl(pred->m_lock);
-				lock_guard<mutex> cl(curr->m_lock);
-				if (validate(pred, curr)) {
-					if (curr->key == x) { return false; }
-					else {
-						auto e = nodePool.GetNode(x);
-						e->next = curr;
-						pred->next = e;
-						return true;
-					}
-				}
+			else {
+				auto node = new LFNode{ x };
+				node->next = reinterpret_cast<unsigned>(curr) & 0xFFFFFFFE;
+				if (pred->CAS(curr, node, false, false))
+					return true;
 			}
 		}
 	}
@@ -123,64 +132,76 @@ public:
 		LFNode *pred, *curr;
 		while (true)
 		{
-			pred = &head;
-			curr = pred->next;
+			find(x, pred, curr);
 
-			while (curr->key < x) {
-				pred = curr;
-				curr = curr->next;
+			if (curr->key != x) {
+				return false;
+			}
+			else {
+				auto succ = curr->GetNext();
+				auto retval = curr->TryMark();
+				if (!retval)
+					continue;
+
+				pred->CAS(curr, succ, false, true);
+				return true;
+			}
+		}
+	}
+
+	void find(int key, LFNode*& pred, LFNode*& curr) {
+	retry:
+		LFNode *pr = &head;
+		LFNode *cu = pr->GetNext();
+
+		while (true) {
+			bool removed{ false };
+			auto su = cu->GetNextWithMark(removed);
+			while (true == removed) {
+				if (false == pr->CAS(cu, su, false, false))
+					goto retry;
+				cu = su;
+				su = cu->GetNextWithMark(removed);
 			}
 
-			{
-				lock_guard<mutex> pl(pred->m_lock);
-				lock_guard<mutex> cl(curr->m_lock);
-				if (validate(pred, curr))
-				{
-					if (curr->key != x) { return false; }
-					else {
-						curr->deleted = true;
-						pred->next = curr->next;
-						nodePool.FreeNode(curr);
-						return true;
-					}
-				}
+			if (cu->key >= key) {
+				pred = pr;
+				curr = cu;
+				return;
 			}
+
+			pr = cu;
+			cu = cu->GetNext();
 		}
 	}
 
 	bool contains(int x) {
 		LFNode *pred, *curr;
-		while (true)
-		{
-			pred = &head;
-			curr = pred->next;
+		pred = &head;
+		curr = pred->GetNext();
+		bool marked{ false };
 
-			while (curr->key < x) {
-				pred = curr;
-				curr = curr->next;
-			}
-			return curr->key == x && !curr->deleted;
+		while (curr->key < x) {
+			pred = curr;
+			curr = curr->GetNextWithMark(marked);
 		}
+		return curr->key == x && !marked;
 	}
 
 	void clear() {
-		while (head.next != &tail) {
-			auto temp = head.next;
+		while (head.GetNext() != &tail) {
+			auto temp = head.GetNext();
 			head.next = temp->next;
 			delete temp;
 		}
 	}
 
-	bool validate(LFNode* pred, LFNode* curr) {
-		return !pred->deleted && !curr->deleted && pred->next == curr;
-	}
-
 	void dump(size_t count) {
-		auto ptr = head.next;
+		auto ptr = head.GetNext();
 		cout << count << " Result : ";
 		for (auto i = 0; i < count && ptr != &tail; ++i) {
 			cout << ptr->key << " ";
-			ptr = ptr->next;
+			ptr = ptr->GetNext();
 		}
 		cout << "\n";
 	}
@@ -218,7 +239,7 @@ int main() {
 		for (auto& t : threads) { t.join(); }
 		auto du = chrono::high_resolution_clock::now() - start_t;
 
-		nodePool.Recycle();
+		//nodePool.Recycle();
 		mySet.dump(20);
 
 		cout << thread_num << "Threads, Time = ";
