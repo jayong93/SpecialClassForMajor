@@ -121,7 +121,7 @@ public:
 			}
 			else {
 				auto node = new LFNode{ x };
-				node->next = reinterpret_cast<unsigned>(curr) & 0xFFFFFFFE;
+				node->SetNext(curr);
 				if (pred->CAS(curr, node, false, false))
 					return true;
 			}
@@ -143,7 +143,7 @@ public:
 				if (!retval)
 					continue;
 
-				pred->CAS(curr, succ, false, true);
+				pred->CAS(curr, succ, false, false);
 				return true;
 			}
 		}
