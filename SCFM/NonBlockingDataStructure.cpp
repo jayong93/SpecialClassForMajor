@@ -138,8 +138,8 @@ public:
 				return false;
 			}
 			else {
-				auto succ = curr->GetNext();
 				auto retval = curr->TryMark();
+				auto succ = curr->GetNext();
 				if (!retval)
 					continue;
 
