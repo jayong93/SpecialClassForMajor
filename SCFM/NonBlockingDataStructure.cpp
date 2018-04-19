@@ -138,6 +138,9 @@ public:
 				return false;
 			}
 			else {
+				// 아래 두개의 순서가 바뀌는 경우,
+				// succ를 얻고나서 Marking하기 전에 curr의 next node가 insert로 인해 바뀔 수가 있다.
+				// 즉, 새로 insert되는 노드가 허공에 뜨게 된다.
 				auto retval = curr->TryMark();
 				auto succ = curr->GetNext();
 				if (!retval)
