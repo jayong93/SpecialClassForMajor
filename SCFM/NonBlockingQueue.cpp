@@ -3,6 +3,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <atomic>
 #include <algorithm>
 #include <iterator>
 #include <chrono>
@@ -16,34 +17,55 @@ static constexpr int RANGE = 1000;
 struct Node {
 public:
 	int key;
-	Node* next;
+	Node * volatile next;
 
 	Node() : next{ nullptr } {}
 	Node(int key) : key{ key }, next{ nullptr } {}
 	~Node() {}
 };
 
+bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
+	return atomic_compare_exchange_strong((atomic_uintptr_t*)(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
+}
+
 class CQUEUE {
-	Node *head, *tail;
-	mutex enqLock, deqLock;
+	Node * volatile head, * volatile tail;
 public:
 	CQUEUE() : head{ new Node{0} }, tail{ head } {}
 
 	void Enqueue(int x) {
 		Node* e{ new Node{x} };
-		unique_lock<mutex> lg{ enqLock };
-		tail->next = e;
-		tail = e;
+		while (true) {
+			Node* last{ tail };
+			Node* next{ last->next };
+			if (last != tail) continue;
+			if (nullptr == next) {
+				if (CAS(&(last->next), nullptr, e)) {
+					CAS(&tail, last, e);
+					return;
+				}
+			}
+			else CAS(&tail, last, next);
+		}
 	}
 
 	int Dequeue() {
-		unique_lock<mutex> lg{ deqLock };
-		if (nullptr == head->next) return -1;
-		int val = head->next->key;
-		auto tmp = head;
-		head = head->next;
-		delete tmp;
-		return val;
+		while (true) {
+			Node* first{ head };
+			Node* last{ tail };
+			Node* next{ first->next };
+			if (first != head) continue;
+			if (first == last) {
+				if (nullptr == next) return -1;
+				CAS(&tail, last, next);
+				continue;
+			}
+
+			int val = next->key;
+			if (false == CAS(&head, first, next)) continue;
+			delete first;
+			return val;
+		}
 	}
 
 	void clear() {
