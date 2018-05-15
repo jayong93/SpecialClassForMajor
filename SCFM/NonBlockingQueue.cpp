@@ -25,7 +25,7 @@ public:
 };
 
 bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
-	return atomic_compare_exchange_strong((atomic_uintptr_t*)(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
+	return atomic_compare_exchange_strong(reinterpret_cast<volatile atomic_uintptr_t*>(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
 }
 
 class LFQUEUE {
