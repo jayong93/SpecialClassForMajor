@@ -17,14 +17,10 @@ struct Node {
 public:
 	int key;
 	Node* next;
-	mutex m_lock;
-	bool deleted{ false };
 
 	Node() : next{ nullptr } {}
 	Node(int key) : key{ key }, next{ nullptr } {}
 	~Node() {}
-	void lock() { m_lock.lock(); }
-	void unlock() { m_lock.unlock(); }
 };
 
 class CQUEUE {
