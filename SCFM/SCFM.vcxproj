@@ -19,7 +19,6 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="NonBlockingList.cpp" />
     <ClCompile Include="NonBlockingQueue.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
