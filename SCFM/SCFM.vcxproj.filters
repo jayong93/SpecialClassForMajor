@@ -15,7 +15,10 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="NonBlockingDataStructure.cpp">
+    <ClCompile Include="NonBlockingQueue.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="NonBlockingList.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
   </ItemGroup>
