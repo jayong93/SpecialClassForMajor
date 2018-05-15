@@ -11,7 +11,7 @@
 
 using namespace std;
 
-static constexpr int NUM_TEST = 10000000;
+static constexpr int NUM_TEST = 50000000;
 static constexpr int RANGE = 1000;
 
 struct Node {
@@ -102,7 +102,7 @@ void benchMark(int num_thread) {
 int main() {
 	vector<thread> threads;
 
-	for (auto thread_num = 1; thread_num <= 8; thread_num *= 2) {
+	for (auto thread_num = 1; thread_num <= 32; thread_num *= 2) {
 		myQueue.clear();
 		threads.clear();
 
