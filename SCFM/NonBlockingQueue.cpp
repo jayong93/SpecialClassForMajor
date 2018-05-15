@@ -29,19 +29,19 @@ public:
 
 class CQUEUE {
 	Node *head, *tail;
-	mutex g_lock;
+	mutex enqLock, deqLock;
 public:
 	CQUEUE() : head{ new Node{0} }, tail{ head } {}
 
 	void Enqueue(int x) {
 		Node* e{ new Node{x} };
-		unique_lock<mutex> lg{ g_lock };
+		unique_lock<mutex> lg{ enqLock };
 		tail->next = e;
 		tail = e;
 	}
 
 	int Dequeue() {
-		unique_lock<mutex> lg{ g_lock };
+		unique_lock<mutex> lg{ deqLock };
 		if (nullptr == head->next) return -1;
 		int val = head->next->key;
 		auto tmp = head;
