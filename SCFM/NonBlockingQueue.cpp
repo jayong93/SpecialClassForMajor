@@ -11,7 +11,7 @@
 
 using namespace std;
 
-static constexpr int NUM_TEST = 50000000;
+static constexpr int NUM_TEST = 10000000;
 static constexpr int RANGE = 1000;
 
 struct Node {
@@ -24,60 +24,76 @@ public:
 	~Node() {}
 };
 
+struct StampedPointer {
+	Node* volatile ptr;
+	unsigned int stamp;
+
+	StampedPointer() : ptr{ nullptr }, stamp{ 0 } {}
+	explicit StampedPointer(Node* p, unsigned int s = 0) : ptr{ p }, stamp{ s } {}
+	bool operator!=(const StampedPointer& p) { return (ptr != p.ptr) || (stamp != p.stamp); }
+};
+
 bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
 	return atomic_compare_exchange_strong(reinterpret_cast<volatile atomic_uintptr_t*>(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
 }
 
+bool StampedCAS(StampedPointer* ptr, StampedPointer old_value, StampedPointer new_value) {
+	new_value.stamp = old_value.stamp + 1; // ABA 문제를 해결하기 위해 꼭 필요.
+	return atomic_compare_exchange_strong(reinterpret_cast<atomic_llong*>(ptr), reinterpret_cast<long long*>(&old_value), *reinterpret_cast<long long*>(&new_value));
+}
+
 class LFQUEUE {
-	Node * volatile head, * volatile tail;
+	StampedPointer head, tail;
 public:
 	LFQUEUE() : head{ new Node{0} }, tail{ head } {}
 
 	void Enqueue(int x) {
 		Node* e{ new Node{x} };
+		StampedPointer se{ e };
 		while (true) {
-			Node* last{ tail };
-			Node* next{ last->next };
+			StampedPointer last{ tail };
+			StampedPointer next{ last.ptr->next };
 			if (last != tail) continue;
-			if (nullptr == next) {
-				if (CAS(&(last->next), nullptr, e)) {
-					CAS(&tail, last, e);
+			if (nullptr == next.ptr) {
+				if (CAS(&(last.ptr->next), nullptr, e)) {
+					StampedCAS(&tail, last, se);
 					return;
 				}
 			}
-			else CAS(&tail, last, next);
+			else StampedCAS(&tail, last, next);
 		}
 	}
 
 	int Dequeue() {
 		while (true) {
-			Node* first{ head };
-			Node* last{ tail };
-			Node* next{ first->next };
+			StampedPointer first{ head };
+			StampedPointer last{ tail };
+			StampedPointer next{ first.ptr->next };
 			if (first != head) continue;
-			if (first == last) {
-				if (nullptr == next) return -1;
-				CAS(&tail, last, next);
+			if (first.ptr == last.ptr) {
+				if (nullptr == next.ptr) return -1;
+				StampedCAS(&tail, last, next);
 				continue;
 			}
 
-			int val = next->key;
-			if (false == CAS(&head, first, next)) continue;
-			delete first;
+			int val = next.ptr->key;
+			if (false == StampedCAS(&head, first, next)) continue;
+			delete first.ptr;
 			return val;
 		}
 	}
 
 	void clear() {
-		while (head->next != nullptr) {
-			Node *tmp = head;
-			head = head->next;
+		while (head.ptr->next != nullptr) {
+			Node *tmp = head.ptr;
+			head.ptr = head.ptr->next;
 			delete tmp;
 		}
+		tail = head;
 	}
 
 	void dump(size_t count) {
-		auto& ptr = head->next;
+		auto& ptr = head.ptr->next;
 		cout << count << " Result : ";
 		for (auto i = 0; i < count; ++i) {
 			if (nullptr == ptr) break;
@@ -102,7 +118,7 @@ void benchMark(int num_thread) {
 int main() {
 	vector<thread> threads;
 
-	for (auto thread_num = 1; thread_num <= 32; thread_num *= 2) {
+	for (auto thread_num = 1; thread_num <= 128; thread_num *= 2) {
 		myQueue.clear();
 		threads.clear();
 
