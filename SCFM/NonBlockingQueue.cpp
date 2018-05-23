@@ -25,21 +25,28 @@ public:
 };
 
 struct StampedPointer {
-	Node* volatile ptr;
-	unsigned int stamp;
+	atomic_llong data;
 
-	StampedPointer() : ptr{ nullptr }, stamp{ 0 } {}
-	explicit StampedPointer(Node* p, unsigned int s = 0) : ptr{ p }, stamp{ s } {}
-	bool operator!=(const StampedPointer& p) { return (ptr != p.ptr) || (stamp != p.stamp); }
+	StampedPointer() : data{ 0 } {}
+	explicit StampedPointer(Node* p, unsigned int s = 0) : data{((long long)s << 32) | (long long)p} {}
+	StampedPointer(const StampedPointer& o) : data{ o.data.load() } {}
+
+	bool operator!=(const StampedPointer& p) { return data != p.data; }
+	StampedPointer& operator=(const StampedPointer& p) { data = p.data.load(); return *this; }
+	Node* GetPtr() const { return (Node*)(data.load() & 0xffffffff); }
+	unsigned int GetStamp() const { return (unsigned int)(data.load() & ((long long)0xffffffff << 32)); }
+	void SetPtr(Node* ptr) { data |= 0xffffffff; data &= (long long)ptr; }
+	void SetStamp(unsigned int stamp) { data |= ((long long)0xffffffff << 32); data &= ((long long)stamp << 32); }
 };
 
 bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
 	return atomic_compare_exchange_strong(reinterpret_cast<volatile atomic_uintptr_t*>(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
 }
 
-bool StampedCAS(StampedPointer* ptr, StampedPointer old_value, StampedPointer new_value) {
-	new_value.stamp = old_value.stamp + 1; // ABA 문제를 해결하기 위해 꼭 필요.
-	return atomic_compare_exchange_strong(reinterpret_cast<atomic_llong*>(ptr), reinterpret_cast<long long*>(&old_value), *reinterpret_cast<long long*>(&new_value));
+bool StampedCAS(StampedPointer* ptr, const StampedPointer& old_value, const StampedPointer& new_value) {
+	auto ov = old_value;
+	StampedPointer nv{ new_value.GetPtr(), ov.GetStamp() + 1 };
+	return atomic_compare_exchange_strong(reinterpret_cast<atomic_llong*>(ptr), reinterpret_cast<long long*>(&ov), *reinterpret_cast<long long*>(&nv));
 }
 
 class LFQUEUE {
@@ -52,10 +59,10 @@ public:
 		StampedPointer se{ e };
 		while (true) {
 			StampedPointer last{ tail };
-			StampedPointer next{ last.ptr->next };
+			StampedPointer next{ last.GetPtr()->next };
 			if (last != tail) continue;
-			if (nullptr == next.ptr) {
-				if (CAS(&(last.ptr->next), nullptr, e)) {
+			if (nullptr == next.GetPtr()) {
+				if (CAS(&(last.GetPtr()->next), nullptr, e)) {
 					StampedCAS(&tail, last, se);
 					return;
 				}
@@ -68,32 +75,32 @@ public:
 		while (true) {
 			StampedPointer first{ head };
 			StampedPointer last{ tail };
-			StampedPointer next{ first.ptr->next };
+			StampedPointer next{ first.GetPtr()->next };
 			if (first != head) continue;
-			if (first.ptr == last.ptr) {
-				if (nullptr == next.ptr) return -1;
+			if (first.GetPtr() == last.GetPtr()) {
+				if (nullptr == next.GetPtr()) return -1;
 				StampedCAS(&tail, last, next);
 				continue;
 			}
 
-			int val = next.ptr->key;
+			int val = next.GetPtr()->key;
 			if (false == StampedCAS(&head, first, next)) continue;
-			delete first.ptr;
+			delete first.GetPtr();
 			return val;
 		}
 	}
 
 	void clear() {
-		while (head.ptr->next != nullptr) {
-			Node *tmp = head.ptr;
-			head.ptr = head.ptr->next;
+		while (head.GetPtr()->next != nullptr) {
+			Node *tmp = head.GetPtr();
+			head.SetPtr(head.GetPtr()->next);
 			delete tmp;
 		}
 		tail = head;
 	}
 
 	void dump(size_t count) {
-		auto& ptr = head.ptr->next;
+		auto& ptr = head.GetPtr()->next;
 		cout << count << " Result : ";
 		for (auto i = 0; i < count; ++i) {
 			if (nullptr == ptr) break;
