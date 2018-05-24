@@ -24,27 +24,34 @@ public:
 	~Node() {}
 };
 
-class CStack {
-	Node* top;
-	mutex lock;
+bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
+	return atomic_compare_exchange_strong(reinterpret_cast<volatile atomic_uintptr_t*>(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
+}
+
+class LFStack {
+	Node* volatile top;
 public:
-	CStack() : top{ nullptr } {}
+	LFStack() : top{ nullptr } {}
 
 	void Push(int x) {
 		auto e = new Node{ x };
-		unique_lock<mutex> lg{ lock };
-		e->next = top;
-		top = e;
+		while (true)
+		{
+			auto head = top;
+			e->next = head;
+			if (head != top) continue;
+			if (true == CAS(&top, head, e)) return;
+		}
 	}
 
 	int Pop() {
-		unique_lock<mutex> lg{ lock };
-		if (nullptr == top) return 0;
-		int tmp = top->key;
-		Node* ptr = top;
-		top = top->next;
-		delete ptr;
-		return tmp;
+		while (true)
+		{
+			auto head = top;
+			if (nullptr == head) return 0;
+			if (head != top) continue;
+			if (true == CAS(&top, head, head->next)) return head->key;
+		}
 	}
 
 	void clear() {
@@ -54,6 +61,8 @@ public:
 			top = top->next;
 			delete tmp;
 		}
+		delete top;
+		top = nullptr;
 	}
 
 	void dump(size_t count) {
@@ -82,7 +91,7 @@ void benchMark(int num_thread) {
 int main() {
 	vector<thread> threads;
 
-	for (auto thread_num = 1; thread_num <= 16; thread_num *= 2) {
+	for (auto thread_num = 1; thread_num <= 128; thread_num *= 2) {
 		myStack.clear();
 		threads.clear();
 
