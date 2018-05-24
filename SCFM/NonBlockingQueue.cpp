@@ -49,13 +49,45 @@ bool StampedCAS(StampedPointer* ptr, const StampedPointer& old_value, const Stam
 	return atomic_compare_exchange_strong(reinterpret_cast<atomic_llong*>(ptr), reinterpret_cast<long long*>(&ov), *reinterpret_cast<long long*>(&nv));
 }
 
+class FreeList {
+public:
+	FreeList() : top{ nullptr } {}
+	~FreeList() {
+		while (nullptr != top) {
+			auto tmp = top;
+			top = top->next;
+			delete tmp;
+		}
+	}
+
+	Node* GetNode(int x) {
+		if (nullptr == top) {
+			return new Node{ x };
+		}
+		auto tmp = top;
+		top = top->next;
+		tmp->key = x;
+		tmp->next = nullptr;
+		return tmp;
+	}
+	void AddNode(Node* node) {
+		node->next = top;
+		top = node;
+	}
+
+private:
+	Node * top;
+};
+
+thread_local FreeList freeList;
+
 class LFQUEUE {
 	StampedPointer head, tail;
 public:
 	LFQUEUE() : head{ new Node{0} }, tail{ head } {}
 
 	void Enqueue(int x) {
-		Node* e{ new Node{x} };
+		auto e = freeList.GetNode(x);
 		StampedPointer se{ e };
 		while (true) {
 			StampedPointer last{ tail };
@@ -85,7 +117,7 @@ public:
 
 			int val = next.GetPtr()->key;
 			if (false == StampedCAS(&head, first, next)) continue;
-			delete first.GetPtr();
+			freeList.AddNode(first.GetPtr());
 			return val;
 		}
 	}
