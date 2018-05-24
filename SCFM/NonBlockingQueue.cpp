@@ -77,8 +77,8 @@ public:
 			StampedPointer last{ tail };
 			StampedPointer next{ first.GetPtr()->next };
 			if (first != head) continue;
+			if (nullptr == next.GetPtr()) return -1;
 			if (first.GetPtr() == last.GetPtr()) {
-				if (nullptr == next.GetPtr()) return -1;
 				StampedCAS(&tail, last, next);
 				continue;
 			}
