@@ -28,12 +28,36 @@ bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
 	return atomic_compare_exchange_strong(reinterpret_cast<volatile atomic_uintptr_t*>(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
 }
 
-class LFStack {
+class BackOff {
+public:
+	BackOff() : minDelay{ 1 }, maxDelay{ 1000 }, limit{ minDelay } {}
+
+	void delay() {
+		if (limit < maxDelay) limit *= 2;
+		int waitTime = rand() % limit;
+		int start, current;
+		_asm RDTSC;
+		_asm mov start, eax;
+		do {
+			_asm RDTSC;
+			_asm mov current, eax;
+		} while (current - start < waitTime);
+	}
+
+private:
+	int minDelay;
+	int maxDelay;
+	int limit;
+};
+
+// Lock-Free BackOff Stack
+class LFBOStack {
 	Node* volatile top;
 public:
-	LFStack() : top{ nullptr } {}
+	LFBOStack() : top{ nullptr } {}
 
 	void Push(int x) {
+		BackOff backOff;
 		auto e = new Node{ x };
 		while (true)
 		{
@@ -41,16 +65,19 @@ public:
 			e->next = head;
 			if (head != top) continue;
 			if (true == CAS(&top, head, e)) return;
+			backOff.delay();
 		}
 	}
 
 	int Pop() {
+		BackOff backOff;
 		while (true)
 		{
 			auto head = top;
 			if (nullptr == head) return 0;
 			if (head != top) continue;
 			if (true == CAS(&top, head, head->next)) return head->key;
+			backOff.delay();
 		}
 	}
 
