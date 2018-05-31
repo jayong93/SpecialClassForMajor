@@ -34,14 +34,11 @@ public:
 
 	void delay() {
 		if (limit < maxDelay) limit *= 2;
-		int waitTime = rand() % limit;
+		int waitTime = (rand() % limit) + 1; // waitTime이 0이 되면 backoff를 하지 않기 때문에 최소값을 1로 만들어야 한다.
 		int start, current;
-		_asm RDTSC;
-		_asm mov start, eax;
-		do {
-			_asm RDTSC;
-			_asm mov current, eax;
-		} while (current - start < waitTime);
+		_asm mov ecx, waitTime;
+	myLoop:
+		_asm loop myLoop;
 	}
 
 private:
