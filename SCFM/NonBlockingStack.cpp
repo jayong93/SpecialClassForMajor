@@ -28,33 +28,87 @@ bool CAS(Node* volatile * ptr, Node* old_value, Node* new_value) {
 	return atomic_compare_exchange_strong(reinterpret_cast<volatile atomic_uintptr_t*>(ptr), reinterpret_cast<uintptr_t*>(&old_value), reinterpret_cast<uintptr_t>(new_value));
 }
 
-class BackOff {
-public:
-	BackOff() : minDelay{ 1 }, maxDelay{ 1000 }, limit{ minDelay } {}
+thread_local int exSize = 1; // thread 별로 교환자 크기를 따로 관리.
+constexpr int MAX_THREAD = 64;
 
-	void delay() {
-		if (limit < maxDelay) limit *= 2;
-		int waitTime = (rand() % limit) + 1; // waitTime이 0이 되면 backoff를 하지 않기 때문에 최소값을 1로 만들어야 한다.
-		int start, current;
-		_asm mov ecx, waitTime;
-	myLoop:
-		_asm loop myLoop;
+class Exchanger {
+	volatile int value; // status와 교환값의 합성.
+
+	enum Status { EMPTY, WAIT, BUSY };
+	bool CAS(int oldValue, int newValue, Status oldStatus, Status newStatus) {
+		int oldV = oldValue << 2 | (int)oldStatus;
+		int newV = newValue << 2 | (int)newStatus;
+		return atomic_compare_exchange_strong(reinterpret_cast<atomic_int volatile *>(&value), &oldV, newV);
 	}
 
-private:
-	int minDelay;
-	int maxDelay;
-	int limit;
+public:
+	int exchange(int x) {
+		while (true) {
+			switch (Status(value & 0x3)) {
+			case EMPTY:
+			{
+				int tempVal = value >> 2;
+				if (false == CAS(tempVal, x, EMPTY, WAIT)) continue;
+
+				/* BUSY가 될 때까지 기다리며 timeout된 경우 -1 반환 */
+				int count;
+				for (count = 0; count < 100; ++count) {
+					if (Status(value & 0x3) == BUSY) {
+						int ret = value >> 2;
+						value = EMPTY;
+						return ret;
+					}
+				}
+				if (false == CAS(tempVal, 0, WAIT, EMPTY)) { // 그 사이에 누가 들어온 경우
+					int ret = value >> 2;
+					value = EMPTY;
+					return ret;
+				}
+				return -1;
+			}
+			break;
+			case WAIT:
+			{
+				int temp = value >> 2;
+				if (false == CAS(temp, x, WAIT, BUSY)) break;
+				return temp;
+			}
+			break;
+			case BUSY:
+				if (exSize < MAX_THREAD) {
+					exSize += 1;
+				}
+				return x;
+			default:
+				fprintf_s(stderr, "It's impossible case\n");
+				exit(1);
+			}
+		}
+	}
 };
 
-// Lock-Free BackOff Stack
-class LFBOStack {
-	Node* volatile top;
+class EliminationArray {
+	Exchanger exchanger[MAX_THREAD];
+
 public:
-	LFBOStack() : top{ nullptr } {}
+	int visit(int x) {
+		int index = rand() % exSize;
+		return exchanger[index].exchange(x);
+	}
+
+	void shrink() {
+		if (exSize > 1) exSize -= 1;
+	}
+};
+
+// Lock-Free Elimination BackOff Stack
+class LFEBOStack {
+	Node* volatile top;
+	EliminationArray eliminationArray;
+public:
+	LFEBOStack() : top{ nullptr } {}
 
 	void Push(int x) {
-		BackOff backOff;
 		auto e = new Node{ x };
 		while (true)
 		{
@@ -62,19 +116,23 @@ public:
 			e->next = head;
 			if (head != top) continue;
 			if (true == CAS(&top, head, e)) return;
-			backOff.delay();
+			int result = eliminationArray.visit(x);
+			if (0 == result) break; // pop과 교환됨.
+			if (-1 == result) eliminationArray.shrink(); // timeout 됨.
 		}
 	}
 
 	int Pop() {
-		BackOff backOff;
 		while (true)
 		{
 			auto head = top;
 			if (nullptr == head) return 0;
 			if (head != top) continue;
 			if (true == CAS(&top, head, head->next)) return head->key;
-			backOff.delay();
+			int result = eliminationArray.visit(0);
+			if (0 == result) continue; // pop끼리 교환되면 계속 시도
+			if (-1 == result) eliminationArray.shrink(); // timeout 됨.
+			else return result;
 		}
 	}
 
