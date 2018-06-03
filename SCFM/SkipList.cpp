@@ -54,13 +54,32 @@ public:
 			}
 
 			auto node = new SKNode{ x, top };
-			// Ãß°¡
+			
+			for (auto level = top; level >= 0; --level) {
+				pred[level]->next[level] = node;
+				node->next[level] = curr[level];
+			}
+
 			return true;
 		}
 	}
 
 	bool remove(int x) {
+		SKNode *pred[MAX_LEVEL], *curr[MAX_LEVEL];
+		unique_lock<mutex> lg{ lock };
 
+		find(x, pred, curr);
+
+		if (curr[0]->value != x) return false;
+
+		auto tmp = curr[0];
+		for (auto level = tmp->top_level; level >= 0; --level) {
+			pred[level]->next[level] = tmp->next[level];
+		}
+
+		delete tmp;
+
+		return true;
 	}
 
 	void find(int x, SKNode* preds[], SKNode* currs[]) {
@@ -77,7 +96,13 @@ public:
 	}
 
 	bool contains(int x) {
+		SKNode *pred[MAX_LEVEL], *curr[MAX_LEVEL];
+		unique_lock<mutex> lg{ lock };
 
+		find(x, pred, curr);
+
+		if (curr[0]->value != x) return false;
+		return true;
 	}
 
 	void clear() {
