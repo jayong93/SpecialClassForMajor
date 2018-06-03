@@ -67,7 +67,7 @@ public:
 		preds[MAX_LEVEL - 1] = &head;
 		for (auto level = MAX_LEVEL - 1; level >= 0; --level) {
 			currs[level] = preds[level]->next[level];
-			while (currs[level] != nullptr && currs[level]->value < x) {
+			while (currs[level]->value < x) {
 				preds[level] = currs[level];
 				currs[level] = currs[level]->next[level];
 			}
